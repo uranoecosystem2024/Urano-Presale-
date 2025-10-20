@@ -4,6 +4,8 @@ import { client } from "@/lib/thirdwebClient";
 import { sepolia } from "thirdweb/chains";
 import { presaleAbi } from "@/lib/abi/presale";
 
+/* ----------------------------- Types & Mappings ----------------------------- */
+
 export type RoundKey = "strategic" | "seed" | "private" | "institutional" | "community";
 export const ROUND_ENUM_INDEX: Record<RoundKey, number> = {
   strategic: 0,
@@ -21,8 +23,18 @@ const ROUND_LABEL: Record<RoundKey, string> = {
   community: "Community Round",
 };
 
-const PRESALE_ADDR = process.env
-  .NEXT_PUBLIC_PRESALE_SMART_CONTRACT_ADDRESS as `0x${string}`;
+const ROUND_INDEX_TO_KEY = ["strategic", "seed", "private", "institutional", "community"] as const;
+
+/** Safe mapper for uint8 round index → RoundKey (returns null if out of range). */
+function roundIndexToKey(idx: number): RoundKey | null {
+  return Number.isInteger(idx) && idx >= 0 && idx < ROUND_INDEX_TO_KEY.length
+    ? (ROUND_INDEX_TO_KEY[idx]! as RoundKey)
+    : null;
+}
+
+const PRESALE_ADDR = process.env.NEXT_PUBLIC_PRESALE_SMART_CONTRACT_ADDRESS as `0x${string}`;
+
+/* --------------------------------- Contracts -------------------------------- */
 
 const presale = getContract({
   client,
@@ -40,6 +52,35 @@ const ERC20_DECIMALS_ABI = [
     type: "function",
   },
 ] as const;
+
+/* --------------------------------- ABI Shapes -------------------------------- */
+
+type RoundInfoTuple = readonly [
+  boolean, // isActive
+  bigint, // tokenPrice
+  bigint, // minPurchase
+  bigint, // totalRaised
+  bigint, // startTime
+  bigint, // endTime
+  bigint, // totalTokensSold
+  bigint, // maxTokensToSell
+  boolean, // isPublic
+  bigint, // vestingEndTime
+  bigint, // cliffPeriodMonths
+  bigint, // vestingDurationMonths
+  bigint // tgeUnlockPercentage (bps)
+];
+
+type GetUserPurchasesTuple = readonly [bigint[], bigint[], bigint[], bigint[]];
+
+type WhitelistTuple = readonly [
+  boolean, // isWhitelisted
+  bigint, // preAssignedTokens
+  bigint, // claimedTokens
+  number // whitelistRound (uint8)
+];
+
+/* --------------------------------- Utilities -------------------------------- */
 
 export async function getTokenDecimals(): Promise<number> {
   try {
@@ -66,22 +107,17 @@ export async function getTokenDecimals(): Promise<number> {
   }
 }
 
-/** Round info tuple (matches get*RoundInfo ABI order). */
-type RoundInfoTuple = readonly [
-  boolean,  // isActive
-  bigint,   // tokenPrice
-  bigint,   // minPurchase
-  bigint,   // totalRaised
-  bigint,   // startTime
-  bigint,   // endTime
-  bigint,   // totalTokensSold
-  bigint,   // maxTokensToSell
-  boolean,  // isPublic
-  bigint,   // vestingEndTime
-  bigint,   // cliffPeriodMonths
-  bigint,   // vestingDurationMonths
-  bigint    // tgeUnlockPercentage
-];
+async function getTgeTime(): Promise<bigint> {
+  try {
+    const t = (await readContract({
+      contract: presale,
+      method: "tgeTime",
+    }));
+    return t;
+  } catch {
+    return 0n;
+  }
+}
 
 async function readRoundInfoByKey(key: RoundKey): Promise<RoundInfoTuple> {
   switch (key) {
@@ -98,7 +134,29 @@ async function readRoundInfoByKey(key: RoundKey): Promise<RoundInfoTuple> {
   }
 }
 
-/** Pretty token amount with rounding to 3 decimals. */
+/** Add months in UTC preserving "day of month" semantics. */
+function addMonthsUTC(date: Date, months: number): Date {
+  const y = date.getUTCFullYear();
+  const m = date.getUTCMonth();
+  const d = date.getUTCDate();
+  const result = new Date(Date.UTC(y, m + months, 1));
+  // Set to desired day or last day of that month if day overflows
+  const lastDay = new Date(Date.UTC(result.getUTCFullYear(), result.getUTCMonth() + 1, 0)).getUTCDate();
+  result.setUTCDate(Math.min(d, lastDay));
+  return result;
+}
+
+/** Month label like "Nov 2025" in the user's locale. */
+function monthLabel(date: Date): string {
+  return date.toLocaleString(undefined, { month: "short", year: "numeric" });
+}
+
+/** Convert UNIX seconds bigint → Date (UTC). */
+function unixToDateUTC(sec: bigint): Date {
+  return new Date(Number(sec) * 1000);
+}
+
+/** Format token for UI (max 3 decimals, localized) from bigint raw value. */
 export function formatTokenAmount(raw: bigint, decimals: number): string {
   if (raw === 0n) return "0";
   const base = 10n ** BigInt(decimals);
@@ -107,171 +165,161 @@ export function formatTokenAmount(raw: bigint, decimals: number): string {
 
   if (fraction === 0n) return integer.toLocaleString();
 
-  // Build a JS number safely for rounding to 3 decimals
+  // Convert to JS number for rounding to 3 decimals (safe for UI, not for precise math)
   const asNumber = Number(integer) + Number(fraction) / Number(base);
   const rounded = Math.round(asNumber * 1000) / 1000;
   return rounded.toLocaleString(undefined, { maximumFractionDigits: 3 });
 }
 
-export type MonthlyVestingItem = {
-  /** e.g. "Nov 2025" */
-  label: string;
-  /** total tokens unlocking at that month (rounded done in formatter) */
-  amountRaw: bigint;
-  claimedRaw: bigint;
-  claimableRaw: bigint;
-  /** 1st day of that month (UTC) – used for sorting */
-  firstUnlockDate: Date;
-  /** Optional: which round this item belongs to (for debugging/UX) */
-  round?: RoundKey;
-  roundLabel?: string;
-};
-
-function monthKeyFromUnix(unixSec: bigint | number): { key: string; date: Date; label: string } {
-  const ms = Number(unixSec) * 1000;
-  const d = new Date(ms);
-  const y = d.getUTCFullYear();
-  const m = d.getUTCMonth();
-  const key = `${y}-${m}`;
-  const label = d.toLocaleString(undefined, { month: "short", year: "numeric" });
-  return { key, date: new Date(Date.UTC(y, m, 1)), label };
+/** Split a bigint total into `months` nearly-equal bigint chunks; remainder to the last. */
+function splitIntoMonths(total: bigint, months: number): bigint[] {
+  if (months <= 0) return [];
+  const m = BigInt(months);
+  const q = total / m;
+  const r = total % m;
+  const arr: bigint[] = new Array(months).fill(q) as bigint[];
+  if (r > 0n) {
+    const lastIndex = months - 1;
+    const lastMonth = arr[lastIndex]!;
+    arr[lastIndex] = lastMonth + r; // put remainder in the final month
+  }
+  return arr;
 }
 
-/** Returns rounds the user participated in (purchases or whitelist with preAssigned tokens). */
-async function getUserParticipatedRounds(user: `0x${string}`): Promise<RoundKey[]> {
-  const keys: RoundKey[] = ["strategic", "seed", "private", "institutional", "community"];
-  const participated = new Set<RoundKey>();
+/* -------------------------- Participation discovery -------------------------- */
 
-  // Purchases per round
-  for (const rk of keys) {
-    const [amounts] = (await readContract({
-      contract: presale,
-      method: "getUserPurchases",
-      params: [user, ROUND_ENUM_INDEX[rk]],
-    })) as readonly [bigint[], bigint[], bigint[], bigint[]];
+async function getUserPurchasesSumByRound(user: `0x${string}`, rk: RoundKey): Promise<bigint> {
+  const res = (await readContract({
+    contract: presale,
+    method: "getUserPurchases",
+    params: [user, ROUND_ENUM_INDEX[rk]],
+  })) as GetUserPurchasesTuple;
 
-    const sum = amounts.reduce((a, v) => a + v, 0n);
-    if (sum > 0n) participated.add(rk);
-  }
+  const [amounts] = res;
+  let sum = 0n;
+  for (const a of amounts) sum += a;
+  return sum;
+}
 
-  // Whitelist (Strategic/Seed only)
-  const wl = (await readContract({
+async function getWhitelistInfo(user: `0x${string}`): Promise<WhitelistTuple> {
+  const w = (await readContract({
     contract: presale,
     method: "whitelist",
     params: [user],
-  })) as [boolean, bigint, bigint, number];
-
-  const [isWhitelisted, preAssigned, _claimedWl, wlRoundIndex] = wl;
-  if (isWhitelisted && preAssigned > 0n) {
-    const wlRound = (["strategic", "seed", "private", "institutional", "community"] as const)[
-      wlRoundIndex
-    ];
-    if (wlRound === "strategic" || wlRound === "seed") {
-      participated.add(wlRound);
-    }
-  }
-
-  return Array.from(participated);
+  })) as WhitelistTuple;
+  return w;
 }
 
+/** Returns the set of rounds the user participated in (purchases or whitelist>0). */
+async function getUserParticipatedRounds(user: `0x${string}`): Promise<RoundKey[]> {
+  const keys: RoundKey[] = ["strategic", "seed", "private", "institutional", "community"];
+  const set = new Set<RoundKey>();
+
+  // Purchases
+  const sums = await Promise.all(keys.map((rk) => getUserPurchasesSumByRound(user, rk)));
+  sums.forEach((sum, i) => {
+    if (sum > 0n) set.add(keys[i]!);
+  });
+
+  // Whitelist
+  const [isWhitelisted, preAssigned, _claimed, wlRound] = await getWhitelistInfo(user);
+  if (isWhitelisted && preAssigned > 0n) {
+    const mapped = roundIndexToKey(wlRound);
+    if (mapped) set.add(mapped);
+  }
+
+  return Array.from(set.values());
+}
+
+/* ------------------------------ Public interface ------------------------------ */
+
+export type MonthlyVestingItem = {
+  /** e.g., "Nov 2025" */
+  label: string;
+  /** Total tokens unlocking at that date (raw BigInt) */
+  amountRaw: bigint;
+  /** UTC date of the unlock */
+  firstUnlockDate: Date;
+  /** Which round this item belongs to */
+  round: RoundKey;
+  roundLabel: string;
+};
+
 /**
- * Build "upcoming unlocks" for all the user's participated rounds.
- * NOTE: The contract's getUserVestingInfo returns a single vestingEndTime per purchase.
- * We group by that month to build the schedule (no per-month breakdown on-chain).
+ * Build "upcoming unlocks" for rounds the user actually participated in,
+ * based solely on vesting params + TGE time (not the active round).
  */
 export async function readAllParticipatedMonthlyVesting(user: `0x${string}`): Promise<{
   tokenDecimals: number;
   items: MonthlyVestingItem[];
 }> {
-  const tokenDecimals = await getTokenDecimals();
-  const rounds = await getUserParticipatedRounds(user);
+  const [tokenDecimals, tgeTimeRaw] = await Promise.all([getTokenDecimals(), getTgeTime()]);
+  const tgeDate = tgeTimeRaw > 0n ? unixToDateUTC(tgeTimeRaw) : new Date(0);
+  const now = new Date();
 
+  const rounds = await getUserParticipatedRounds(user);
   if (rounds.length === 0) {
     return { tokenDecimals, items: [] };
   }
 
-  type Agg = { amount: bigint; claimed: bigint; claimable: bigint; firstDate: Date; label: string };
-  const map = new Map<string, Agg>();
+  const items: MonthlyVestingItem[] = [];
+
+  const wl = await getWhitelistInfo(user);
+  const [isWl, preAssigned, _claimedWl, wlRound] = wl;
+  const wlMapped = roundIndexToKey(wlRound);
 
   for (const rk of rounds) {
-    // Normal purchases path
-    const [amounts, unlockTimes, claimed, claimableAmounts] = (await readContract({
-      contract: presale,
-      method: "getUserVestingInfo",
-      params: [user, ROUND_ENUM_INDEX[rk]],
-    })) as readonly [bigint[], bigint[], bigint[], bigint[]];
+    const roundInfo = await readRoundInfoByKey(rk);
+    const cliffMonths = Number(roundInfo[10]);
+    const vestMonths = Number(roundInfo[11]);
+    const tgeBps = Number(roundInfo[12]); // basis points
 
-    for (let i = 0; i < amounts.length; i++) {
-      const a = amounts[i] ?? 0n;
-      if (a === 0n) continue;
+    // Base tokens for this round
+    const purchasedSum = await getUserPurchasesSumByRound(user, rk);
+    const whitelistAdd = isWl && preAssigned > 0n && wlMapped === rk ? preAssigned : 0n;
 
-      const t = unlockTimes[i] ?? 0n;
-      const c = claimed[i] ?? 0n;
-      const cl = claimableAmounts[i] ?? 0n;
+    const totalBase = purchasedSum + whitelistAdd;
+    if (totalBase === 0n) continue;
 
-      const { key, date, label } = monthKeyFromUnix(t);
-      const prev = map.get(key);
-      if (prev) {
-        map.set(key, {
-          amount: prev.amount + a,
-          claimed: prev.claimed + c,
-          claimable: prev.claimable + cl,
-          firstDate: prev.firstDate,
-          label: prev.label,
-        });
-      } else {
-        map.set(key, { amount: a, claimed: c, claimable: cl, firstDate: date, label });
-      }
+    // TGE portion
+    const tgePortion = tgeBps > 0 ? (totalBase * BigInt(tgeBps)) / 10000n : 0n;
+    const afterTge = totalBase - tgePortion;
+
+    // If TGE is in the future and has non-zero amount, add it as an upcoming item
+    if (tgePortion > 0n && tgeDate.getTime() > now.getTime()) {
+      items.push({
+        label: monthLabel(tgeDate),
+        amountRaw: tgePortion,
+        firstUnlockDate: tgeDate,
+        round: rk,
+        roundLabel: ROUND_LABEL[rk],
+      });
     }
 
-    // Whitelist aggregation (if this round is one of the whitelist types)
-    // We add a single unlock bucket using the round's vestingEndTime for the total preAssigned amount.
-    if (rk === "strategic" || rk === "seed") {
-      const wl = (await readContract({
-        contract: presale,
-        method: "whitelist",
-        params: [user],
-      })) as [boolean, bigint, bigint, number];
+    // Monthly linear schedule post-cliff
+    if (vestMonths > 0 && afterTge > 0n && tgeTimeRaw > 0n) {
+      const firstMonthDate = addMonthsUTC(tgeDate, cliffMonths);
+      const monthlyParts = splitIntoMonths(afterTge, vestMonths);
 
-      const [isWhitelisted, preAssigned, claimedWl, wlRoundIndex] = wl;
-      const mapped = (["strategic", "seed", "private", "institutional", "community"] as const)[
-        wlRoundIndex
-      ];
-      if (isWhitelisted && preAssigned > 0n && mapped === rk) {
-        const info = await readRoundInfoByKey(rk);
-        const vestEnd = info[9]; // vestingEndTime
-        const { key, date, label } = monthKeyFromUnix(vestEnd);
-        const prev = map.get(key);
-        if (prev) {
-          map.set(key, {
-            amount: prev.amount + preAssigned,
-            claimed: prev.claimed + claimedWl,
-            claimable: prev.claimable, // getWhitelistClaimable exists, but we don't need per-bucket here
-            firstDate: prev.firstDate,
-            label: prev.label,
-          });
-        } else {
-          map.set(key, {
-            amount: preAssigned,
-            claimed: claimedWl,
-            claimable: 0n,
-            firstDate: date,
-            label,
-          });
-        }
+      for (let i = 0; i < monthlyParts.length; i++) {
+        const unlockDate = addMonthsUTC(firstMonthDate, i);
+        if (unlockDate.getTime() <= now.getTime()) continue; // upcoming only
+        const amt = monthlyParts[i] ?? 0n;
+        if (amt === 0n) continue;
+
+        items.push({
+          label: monthLabel(unlockDate),
+          amountRaw: amt,
+          firstUnlockDate: unlockDate,
+          round: rk,
+          roundLabel: ROUND_LABEL[rk],
+        });
       }
     }
   }
 
-  const items: MonthlyVestingItem[] = Array.from(map.values())
-    .sort((a, b) => a.firstDate.getTime() - b.firstDate.getTime())
-    .map((v) => ({
-      label: v.label, // e.g., "Nov 2025"
-      amountRaw: v.amount,
-      claimedRaw: v.claimed,
-      claimableRaw: v.claimable,
-      firstUnlockDate: v.firstDate,
-    }));
+  // Sort chronologically
+  items.sort((a, b) => a.firstUnlockDate.getTime() - b.firstUnlockDate.getTime());
 
   return { tokenDecimals, items };
 }
