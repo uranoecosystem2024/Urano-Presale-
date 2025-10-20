@@ -4,8 +4,6 @@ import { Stack, Typography, Box } from "@mui/material";
 import { useMemo } from "react";
 import { usePresaleProgress } from "@/hooks/usePresaleProgress";
 import { useTheme } from "@mui/material/styles";
-import { formatCompactDecimalString } from "@/utils/compactDecimal";
-import { formatTokenAmount } from "@/utils/profile/userClaimInfo";
 
 const CELL_W = 20;
 const CELL_H = 18;
@@ -32,6 +30,20 @@ function buildTileDataUrl({
   return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
 }
 
+/** Format a raw token amount (bigint) with given decimals into a string with
+ * thousands separators and exactly 2 decimal digits, rounded half up. */
+function formatTokenAmount2dp(amountRaw: bigint, decimals: number): string {
+  const base = 10n ** BigInt(decimals);      // e.g., 1e18
+  // Scale to 2 decimals and round half up: (raw * 100 + base/2) / base
+  const scaled = (amountRaw * 100n + base / 2n) / base; // integer "cents"
+  const intPart = scaled / 100n;
+  const fracTwo = scaled % 100n;
+
+  const intStr = intPart.toLocaleString();                // BigInt has toLocaleString
+  const fracStr = fracTwo.toString().padStart(2, "0");    // always 2 digits
+  return `${intStr}.${fracStr}`;
+}
+
 export default function StatusBar() {
   const { loading, error, data } = usePresaleProgress();
   const theme = useTheme();
@@ -48,14 +60,12 @@ export default function StatusBar() {
 
   const fmtSold = useMemo(() => {
     if (!data) return "—";
-    const decStr = formatTokenAmount(data.totalTokensSold, TOKEN_DECIMALS);
-    return formatCompactDecimalString(decStr, 2);
+    return formatTokenAmount2dp(data.totalTokensSold, TOKEN_DECIMALS);
   }, [data]);
 
   const fmtMax = useMemo(() => {
     if (!data) return "—";
-    const decStr = formatTokenAmount(data.maxTokensToSell, TOKEN_DECIMALS);
-    return formatCompactDecimalString(decStr, 2);
+    return formatTokenAmount2dp(data.maxTokensToSell, TOKEN_DECIMALS);
   }, [data]);
 
   const UNSOLD_TILE_BG = useMemo(
