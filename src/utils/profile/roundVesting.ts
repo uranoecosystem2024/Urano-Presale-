@@ -1,6 +1,6 @@
 import { getContract, readContract } from "thirdweb";
 import { client } from "@/lib/thirdwebClient";
-import { sepolia } from "thirdweb/chains";
+import { arbitrum } from "thirdweb/chains";
 import { presaleAbi } from "@/lib/abi/presale";
 
 export type RoundKey = "strategic" | "seed" | "private" | "institutional" | "community";
@@ -18,7 +18,7 @@ const PRESALE_ADDR = process.env
 
 const presale = getContract({
   client,
-  chain: sepolia,
+  chain: arbitrum,
   address: PRESALE_ADDR,
   abi: presaleAbi,
 });

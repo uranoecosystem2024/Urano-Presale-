@@ -8,7 +8,7 @@ import arb from "@/assets/images/arbdao.webp"
 import MobileMenu from "@/components/MobileMenu";
 import { ConnectButton, useActiveAccount, useConnectModal } from "thirdweb/react";
 import { client } from "@/lib/thirdwebClient";
-import { sepolia } from "thirdweb/chains";
+import { arbitrum } from "thirdweb/chains";
 
 const AdminHeader = () => {
   const theme = useTheme<Theme>();
@@ -53,7 +53,7 @@ const AdminHeader = () => {
               underline="none"
               onClick={async (e) => {
                 e.preventDefault();
-                await connect({ client, chain: sepolia });
+                await connect({ client, chain: arbitrum });
               }}
             >
               <Box sx={{
@@ -82,7 +82,7 @@ const AdminHeader = () => {
               </Box>
             </Link>
           ) : (
-            <ConnectButton client={client} chain={sepolia} />
+            <ConnectButton client={client} chain={arbitrum} />
           )}
 
           <MobileMenu />

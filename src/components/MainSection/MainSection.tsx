@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useActiveAccount, useReadContract } from "thirdweb/react";
 import { getContract } from "thirdweb";
 import { getBalance } from "thirdweb/extensions/erc20";
-import { sepolia } from "thirdweb/chains";
+import { arbitrum } from "thirdweb/chains";
 import { client } from "@/lib/thirdwebClient";
 import { parseUnits } from "viem";
 import {
@@ -34,7 +34,7 @@ const AMOUNT_STORAGE_KEY = "urano:purchaseAmount:v1";
 const USDC_ADDRESS = process.env.NEXT_PUBLIC_USDC_ADDRESS_SEPOLIA as `0x${string}` | undefined;
 const MIN_USDC = 100;
 const ZERO: `0x${string}` = "0x0000000000000000000000000000000000000000";
-const txUrl = (hash?: string) => (hash ? `https://sepolia.etherscan.io/tx/${hash}` : undefined);
+const txUrl = (hash?: string) => (hash ? `https://arbiscan.io/tx/${hash}` : undefined);
 const AnimatedDots = () => (
   <span
     style={{
@@ -101,11 +101,11 @@ const MainSection = () => {
 
   const usdcContract = useMemo(() => {
     if (!USDC_ADDRESS) return undefined;
-    return getContract({ client, address: USDC_ADDRESS, chain: sepolia });
+    return getContract({ client, address: USDC_ADDRESS, chain: arbitrum });
   }, []);
 
   const fallbackContract = useMemo(
-    () => getContract({ client, address: ZERO, chain: sepolia }),
+    () => getContract({ client, address: ZERO, chain: arbitrum }),
     []
   );
 

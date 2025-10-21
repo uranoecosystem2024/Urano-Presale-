@@ -7,7 +7,7 @@ import {
 } from "thirdweb";
 import type { Account } from "thirdweb/wallets";
 import { client } from "@/lib/thirdwebClient";
-import { sepolia } from "thirdweb/chains";
+import { arbitrum } from "thirdweb/chains";
 import { presaleAbi } from "@/lib/abi/presale";
 
 const PRESALE_ADDR = process.env
@@ -21,7 +21,7 @@ if (!PRESALE_ADDR) {
 
 const presale = getContract({
   client,
-  chain: sepolia,
+  chain: arbitrum,
   address: PRESALE_ADDR,
   abi: presaleAbi,
 });
@@ -56,7 +56,7 @@ export async function getTokenDecimals(): Promise<number> {
     const tokenAddr = await getTokenAddress();
     const erc20 = getContract({
       client,
-      chain: sepolia,
+      chain: arbitrum,
       address: tokenAddr,
       abi: ERC20_ABI,
     });
@@ -74,7 +74,7 @@ export async function readContractTokenBalanceRaw(): Promise<bigint> {
   const tokenAddr = await getTokenAddress();
   const erc20 = getContract({
     client,
-    chain: sepolia,
+    chain: arbitrum,
     address: tokenAddr,
     abi: ERC20_ABI,
   });

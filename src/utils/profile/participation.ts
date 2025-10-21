@@ -2,7 +2,7 @@
 "use client";
 
 import { getContract, readContract } from "thirdweb";
-import { sepolia } from "thirdweb/chains";
+import { arbitrum } from "thirdweb/chains";
 
 import type { RoundKey } from "@/utils/profile/bought";
 import { getUsdcDecimals } from "@/utils/profile/bought";
@@ -19,7 +19,7 @@ if (!PRESALE_ADDR) {
 
 const presale = getContract({
   client,
-  chain: sepolia,
+  chain: arbitrum,
   address: PRESALE_ADDR,
   abi: presaleAbi,
 });

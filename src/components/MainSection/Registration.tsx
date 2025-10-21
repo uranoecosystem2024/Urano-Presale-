@@ -15,7 +15,7 @@ import {
   useSwitchActiveWalletChain,
   useNetworkSwitcherModal,
 } from "thirdweb/react";
-import { sepolia } from "thirdweb/chains";
+import { arbitrum } from "thirdweb/chains";
 import { client } from "@/lib/thirdwebClient";
 import { fetchKycAndCheckMismatch } from "@/utils/kyc";
 
@@ -48,7 +48,7 @@ const Registration = () => {
   const connected = Boolean(address);
 
   const activeChain = useActiveWalletChain();
-  const onSepolia = activeChain?.id === sepolia.id;
+  const onArbitrum = activeChain?.id === arbitrum.id;
 
   const switchChain = useSwitchActiveWalletChain();
   const networkSwitcher = useNetworkSwitcherModal();
@@ -97,10 +97,10 @@ const Registration = () => {
   const locked = useMemo(
     () => ({
       step1: false,
-      step2: !(progress.step1 && connected && onSepolia),
+      step2: !(progress.step1 && connected && onArbitrum),
       step3: !progress.step1,
     }),
-    [progress.step1, connected, onSepolia]
+    [progress.step1, connected, onArbitrum]
   );
 
   const showLockError = (title: string, message: string) => {
@@ -109,15 +109,15 @@ const Registration = () => {
     setErrorModalOpen(true);
   };
 
-  const ensureSepoliaOrPrompt = async () => {
-    if (!connected || onSepolia) return true;
+  const ensureArbitrumOrPrompt = async () => {
+    if (!connected || onArbitrum) return true;
     try {
-      await switchChain(sepolia);
+      await switchChain(arbitrum);
       return true;
     } catch {
       void networkSwitcher.open({
         client,
-        sections: [{ label: "Recommended", chains: [sepolia] }],
+        sections: [{ label: "Recommended", chains: [arbitrum] }],
       });
       return false;
     }
@@ -126,11 +126,11 @@ const Registration = () => {
   useEffect(() => {
     if (!connected || !activeChain) return;
 
-    if (activeChain.id !== sepolia.id) {
-      void switchChain(sepolia).catch(() => {
+    if (activeChain.id !== arbitrum.id) {
+      void switchChain(arbitrum).catch(() => {
         void networkSwitcher.open({
           client,
-          sections: [{ label: "Recommended", chains: [sepolia] }],
+          sections: [{ label: "Recommended", chains: [arbitrum] }],
         });
       });
     }
@@ -148,10 +148,10 @@ const Registration = () => {
     }
 
     if (connected) {
-      if (!onSepolia) {
-        const ok = await ensureSepoliaOrPrompt();
+      if (!onArbitrum) {
+        const ok = await ensureArbitrumOrPrompt();
         if (!ok) {
-          showLockError("Wrong network", "Please switch to Sepolia to continue.");
+          showLockError("Wrong network", "Please switch to Arbitrum to continue.");
           return;
         }
       }
@@ -159,7 +159,7 @@ const Registration = () => {
       return;
     }
 
-    await connect({ client, chain: sepolia });
+    await connect({ client, chain: arbitrum });
   };
 
   const handleClickStep2 = async () => {
@@ -168,7 +168,7 @@ const Registration = () => {
         ? "step 1 (Register with Email)"
         : !connected
         ? "step 2 (Connect your wallet)"
-        : "switch to the Sepolia network";
+        : "switch to the Arbitrum network";
       showLockError(
         "Previous steps incomplete",
         `Please complete ${why} before verifying your identity.`
@@ -176,10 +176,10 @@ const Registration = () => {
       return;
     }
 
-    if (!onSepolia) {
-      const ok = await ensureSepoliaOrPrompt();
+    if (!onArbitrum) {
+      const ok = await ensureArbitrumOrPrompt();
       if (!ok) {
-        showLockError("Wrong network", "Please switch to Sepolia to verify your identity.");
+        showLockError("Wrong network", "Please switch to Arbitrum to verify your identity.");
         return;
       }
     }

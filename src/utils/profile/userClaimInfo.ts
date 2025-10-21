@@ -3,7 +3,7 @@
 import { getContract, readContract, prepareContractCall } from "thirdweb";
 import type { PreparedTransaction } from "thirdweb";
 import { client } from "@/lib/thirdwebClient";
-import { sepolia } from "thirdweb/chains";
+import { arbitrum } from "thirdweb/chains";
 import { presaleAbi } from "@/lib/abi/presale";
 
 type PresalePreparedTx = PreparedTransaction<typeof presaleAbi>;
@@ -18,7 +18,7 @@ const PRESALE_ADDR = process.env
 
 const presale = getContract({
   client,
-  chain: sepolia,
+  chain: arbitrum,
   address: PRESALE_ADDR,
   abi: presaleAbi,
 });
@@ -126,7 +126,7 @@ async function getTokenDecimals(): Promise<number> {
 
     const erc20 = getContract({
       client,
-      chain: sepolia,
+      chain: arbitrum,
       address: tokenAddr,
       abi: ERC20_DECIMALS_ABI,
     });

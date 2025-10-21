@@ -9,7 +9,7 @@ import {
 } from "thirdweb";
 import type { PreparedTransaction } from "thirdweb";
 import type { Account } from "thirdweb/wallets";
-import { sepolia } from "thirdweb/chains";
+import { arbitrum } from "thirdweb/chains";
 
 import { client } from "@/lib/thirdwebClient";
 import { presaleAbi } from "@/lib/abi/presale";
@@ -23,7 +23,7 @@ if (!PRESALE_ADDR) {
 
 const presale = getContract({
   client,
-  chain: sepolia,
+  chain: arbitrum,
   address: PRESALE_ADDR,
   abi: presaleAbi,
 });
@@ -113,7 +113,7 @@ async function getUsdcDecimals(): Promise<number> {
 
     const usdc = getContract({
       client,
-      chain: sepolia,
+      chain: arbitrum,
       address: usdcAddr,
       abi: ERC20_DECIMALS_ABI,
     });

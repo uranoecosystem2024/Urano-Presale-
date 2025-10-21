@@ -11,7 +11,7 @@ import { useTheme } from "@mui/material/styles";
 import { useActiveAccount, useReadContract } from "thirdweb/react";
 import { getContract } from "thirdweb";
 import { getBalance } from "thirdweb/extensions/erc20";
-import { sepolia } from "thirdweb/chains";
+import { arbitrum } from "thirdweb/chains";
 import { client } from "@/lib/thirdwebClient";
 import { parseUnits } from "viem";
 import { usePresaleCardData } from "@/hooks/usePresaleCard";
@@ -42,11 +42,11 @@ const TokensSelection = () => {
 
   const usdcContract = useMemo(() => {
     if (!USDC_ADDRESS) return undefined;
-    return getContract({ client, address: USDC_ADDRESS, chain: sepolia });
+    return getContract({ client, address: USDC_ADDRESS, chain: arbitrum });
   }, []);
 
   const fallbackContract = useMemo(
-    () => getContract({ client, address: ZERO, chain: sepolia }),
+    () => getContract({ client, address: ZERO, chain: arbitrum }),
     []
   );
 

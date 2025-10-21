@@ -1,7 +1,7 @@
 // utils/profile/vestingUnlocks.ts
 import { getContract, readContract } from "thirdweb";
 import { client } from "@/lib/thirdwebClient";
-import { sepolia } from "thirdweb/chains";
+import { arbitrum } from "thirdweb/chains";
 import { presaleAbi } from "@/lib/abi/presale";
 
 /* ----------------------------- Types & Mappings ----------------------------- */
@@ -38,7 +38,7 @@ const PRESALE_ADDR = process.env.NEXT_PUBLIC_PRESALE_SMART_CONTRACT_ADDRESS as `
 
 const presale = getContract({
   client,
-  chain: sepolia,
+  chain: arbitrum,
   address: PRESALE_ADDR,
   abi: presaleAbi,
 });
@@ -91,7 +91,7 @@ export async function getTokenDecimals(): Promise<number> {
 
     const erc20 = getContract({
       client,
-      chain: sepolia,
+      chain: arbitrum,
       address: tokenAddr,
       abi: ERC20_DECIMALS_ABI,
     });

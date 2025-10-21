@@ -7,7 +7,7 @@ import {
 } from "thirdweb";
 import type { Account } from "thirdweb/wallets";
 import { client } from "@/lib/thirdwebClient";
-import { sepolia } from "thirdweb/chains";
+import { arbitrum } from "thirdweb/chains";
 import { parseUnits, zeroAddress } from "viem";
 import { presaleAbi } from "@/lib/abi/presale";
 import { mockUSDC as mockUsdcAbi } from "@/lib/abi/mockUSDC";
@@ -19,14 +19,14 @@ const MOCK_USDC_ADDR = process.env
 
 const presale = getContract({
   client,
-  chain: sepolia,
+  chain: arbitrum,
   address: PRESALE_ADDR,
   abi: presaleAbi,
 });
 
 const mockUsdc = getContract({
   client,
-  chain: sepolia,
+  chain: arbitrum,
   address: MOCK_USDC_ADDR,
   abi: mockUsdcAbi,
 });

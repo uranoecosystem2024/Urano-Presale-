@@ -7,7 +7,7 @@ import {
 } from "thirdweb";
 import type { Account } from "thirdweb/wallets";
 import { client } from "@/lib/thirdwebClient";
-import { sepolia } from "thirdweb/chains";
+import { arbitrum } from "thirdweb/chains";
 import { presaleAbi } from "@/lib/abi/presale";
 
 const PRESALE_ADDR = process.env
@@ -15,7 +15,7 @@ const PRESALE_ADDR = process.env
 
 const presale = getContract({
   client,
-  chain: sepolia,
+  chain: arbitrum,
   address: PRESALE_ADDR,
   abi: presaleAbi,
 });

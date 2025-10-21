@@ -1,6 +1,6 @@
 import { getContract, readContract } from "thirdweb";
 import { client } from "@/lib/thirdwebClient";
-import { sepolia } from "thirdweb/chains";
+import { arbitrum } from "thirdweb/chains";
 import { presaleAbi } from "@/lib/abi/presale";
 
 /** Round keys mapped to enum indices used on-chain */
@@ -18,7 +18,7 @@ const PRESALE_ADDR = process.env
 
 const presale = getContract({
   client,
-  chain: sepolia,
+  chain: arbitrum,
   address: PRESALE_ADDR,
   abi: presaleAbi,
 });
@@ -52,7 +52,7 @@ export async function getTokenDecimals(): Promise<number> {
 
     const erc20 = getContract({
       client,
-      chain: sepolia,
+      chain: arbitrum,
       address: tokenAddr,
       abi: ERC20_DECIMALS_ABI,
     });
@@ -73,7 +73,7 @@ export async function getUsdcDecimals(): Promise<number> {
 
     const erc20 = getContract({
       client,
-      chain: sepolia,
+      chain: arbitrum,
       address: usdcAddr,
       abi: ERC20_DECIMALS_ABI,
     });
