@@ -500,7 +500,7 @@ const MainSection = () => {
                 fontWeight: 300,
                 color: theme.palette.text.primary,
               }}>
-                Unlock dynamic incentives through staking <span style={{ fontWeight: 600, color: theme.palette.uranoGreen1.main }}>$URANO</span>
+                Access protocol fees distributed to key contributors
               </Typography>
             </Stack>
 
