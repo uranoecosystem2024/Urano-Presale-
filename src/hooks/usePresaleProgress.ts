@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { readPresaleProgress, type PresaleProgress } from "@/utils/progress";
+import { readPresaleProgress, type PresaleProgress } from "@/utils/progress"; 
 
 type State = {
   loading: boolean;
@@ -22,10 +22,12 @@ export function usePresaleProgress(): State {
     const run = async () => {
       try {
         const data = await readPresaleProgress();
+        console.log(data);
         if (cancelled) return;
         setState({ loading: false, error: null, data });
       } catch (e: unknown) {
         if (cancelled) return;
+        console.log(e);
         setState({
           loading: false,
           error: e instanceof Error ? e.message : "Failed to read progress",
