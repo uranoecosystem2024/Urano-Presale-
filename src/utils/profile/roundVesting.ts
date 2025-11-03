@@ -13,6 +13,14 @@ export const ROUND_ENUM_INDEX: Record<RoundKey, number> = {
   community: 4,
 };
 
+const ENUM_TO_ROUND_KEY: Record<number, RoundKey | undefined> = {
+  0: "strategic",
+  1: "seed",
+  2: "private",
+  3: "institutional",
+  4: "community",
+};
+
 const PRESALE_ADDR = process.env
   .NEXT_PUBLIC_PRESALE_SMART_CONTRACT_ADDRESS as `0x${string}`;
 
@@ -32,19 +40,19 @@ const ROUND_LABEL: Record<RoundKey, string> = {
 };
 
 type RoundInfoTuple = readonly [
-  boolean,  // isActive
-  bigint,   // tokenPrice
-  bigint,   // minPurchase
-  bigint,   // totalRaised
-  bigint,   // startTime
-  bigint,   // endTime
-  bigint,   // totalTokensSold
-  bigint,   // maxTokensToSell
-  boolean,  // isPublic
-  bigint,   // vestingEndTime
-  bigint,   // cliffPeriodMonths
-  bigint,   // vestingDurationMonths
-  bigint    // tgeUnlockPercentage (bps)
+  boolean,
+  bigint,
+  bigint,
+  bigint,
+  bigint,
+  bigint,
+  bigint,
+  bigint,
+  boolean,
+  bigint,
+  bigint,
+  bigint,
+  bigint
 ];
 
 async function readRoundInfoByKey(key: RoundKey): Promise<RoundInfoTuple> {
@@ -62,24 +70,69 @@ async function readRoundInfoByKey(key: RoundKey): Promise<RoundInfoTuple> {
   }
 }
 
+type WhitelistTuple = readonly [boolean, bigint, bigint, number];
+type WhitelistObj = {
+  isWhitelisted: boolean;
+  preAssignedTokens: bigint;
+  claimedTokens: bigint;
+  whitelistRound: number;
+};
+function isWhitelistTuple(x: unknown): x is WhitelistTuple {
+  return (
+    Array.isArray(x) &&
+    x.length >= 4 &&
+    typeof x[0] === "boolean" &&
+    typeof x[1] === "bigint" &&
+    typeof x[2] === "bigint" &&
+    typeof x[3] === "number"
+  );
+}
+function isWhitelistObj(x: unknown): x is WhitelistObj {
+  if (x === null || typeof x !== "object") return false;
+  const r = x as Record<string, unknown>;
+  return (
+    typeof r.isWhitelisted === "boolean" &&
+    typeof r.preAssignedTokens === "bigint" &&
+    typeof r.claimedTokens === "bigint" &&
+    typeof r.whitelistRound === "number"
+  );
+}
+
+async function readUserWhitelistRound(user: `0x${string}`): Promise<RoundKey | null> {
+  const wlUnknown: unknown = await readContract({
+    contract: presale,
+    method: "whitelist",
+    params: [user],
+  });
+
+  let isWhitelisted = false;
+  let whitelistRound = -1;
+  if (isWhitelistTuple(wlUnknown)) {
+    isWhitelisted = wlUnknown[0];
+    whitelistRound = wlUnknown[3] ?? -1;
+  } else if (isWhitelistObj(wlUnknown)) {
+    isWhitelisted = wlUnknown.isWhitelisted;
+    whitelistRound = wlUnknown.whitelistRound ?? -1;
+  }
+
+  if (!isWhitelisted) return null;
+  const key = ENUM_TO_ROUND_KEY[whitelistRound];
+  return key ?? null;
+}
+
 export type PerRoundVesting = {
   round: RoundKey;
   label: string;
-  tgeUnlockBps: number;     // e.g. 1200 = 12%
-  cliffMonths: number;      // months
-  durationMonths: number;   // months
+  tgeUnlockBps: number;
+  cliffMonths: number;
+  durationMonths: number;
   releaseFrequency: "Monthly" | "Unknown";
 };
 
-/**
- * Returns vesting info **only for rounds the user actually purchased in**.
- * A round is considered participated if getUserPurchases(user, round) contains any non-zero amount.
- */
 export async function readUserVestingSummaries(user: `0x${string}`): Promise<PerRoundVesting[]> {
   const all: RoundKey[] = ["strategic", "seed", "private", "institutional", "community"];
 
-  // 1) Detect participation via purchases
-  const participated: RoundKey[] = [];
+  const viaPurchases = new Set<RoundKey>();
   for (const rk of all) {
     const [amounts] = (await readContract({
       contract: presale,
@@ -88,12 +141,15 @@ export async function readUserVestingSummaries(user: `0x${string}`): Promise<Per
     })) as readonly [bigint[], bigint[], bigint[], bigint[]];
 
     const sum = amounts.reduce((acc, v) => acc + v, 0n);
-    if (sum > 0n) participated.push(rk);
+    if (sum > 0n) viaPurchases.add(rk);
   }
 
+  const wlKey = await readUserWhitelistRound(user);
+  if (wlKey) viaPurchases.add(wlKey);
+
+  const participated = all.filter((rk) => viaPurchases.has(rk));
   if (participated.length === 0) return [];
 
-  // 2) Load vesting params for each participated round
   const infos = await Promise.all(participated.map((rk) => readRoundInfoByKey(rk)));
 
   return participated.map((rk, i) => {
