@@ -1,4 +1,3 @@
-// utils/profile/participation.ts
 "use client";
 
 import { getContract, readContract } from "thirdweb";
@@ -9,7 +8,6 @@ import { getUsdcDecimals } from "@/utils/profile/bought";
 import { client } from "@/lib/thirdwebClient";
 import { presaleAbi } from "@/lib/abi/presale";
 
-/** ===== Contract setup ===== */
 const PRESALE_ADDR = process.env
   .NEXT_PUBLIC_PRESALE_SMART_CONTRACT_ADDRESS as `0x${string}`;
 
@@ -23,8 +21,7 @@ const presale = getContract({
   address: PRESALE_ADDR,
   abi: presaleAbi,
 });
-
-/** ===== Rounds & helpers ===== */
+ 
 export const ROUNDS_ORDER: readonly RoundKey[] = [
   "strategic",
   "seed",
@@ -41,6 +38,14 @@ export const ROUND_ENUM_INDEX: Readonly<Record<RoundKey, number>> = {
   community: 4,
 };
 
+export const ENUM_TO_ROUND_KEY: Readonly<Record<number, RoundKey | undefined>> = {
+  0: "strategic",
+  1: "seed",
+  2: "private",
+  3: "institutional",
+  4: "community",
+};
+
 export const ROUND_LABEL: Readonly<Record<RoundKey, string>> = {
   seed: "Seed",
   private: "Private",
@@ -49,13 +54,38 @@ export const ROUND_LABEL: Readonly<Record<RoundKey, string>> = {
   community: "Community",
 };
 
-/** Shape of getUserPurchases return (uint256[] quadruple) */
 type PurchasesTuple = readonly [bigint[], bigint[], bigint[], bigint[]];
 
-/** Round info readers (to grab tokenPrice_) */
+type WhitelistTuple = readonly [boolean, bigint, bigint, number];
+type WhitelistObj = {
+  isWhitelisted: boolean;
+  preAssignedTokens: bigint;
+  claimedTokens: bigint;
+  whitelistRound: number;
+};
+
+function isWhitelistTuple(x: unknown): x is WhitelistTuple {
+  return (
+    Array.isArray(x) &&
+    x.length >= 4 &&
+    typeof x[0] === "boolean" &&
+    typeof x[1] === "bigint" &&
+    typeof x[2] === "bigint" &&
+    typeof x[3] === "number"
+  );
+}
+function isWhitelistObj(x: unknown): x is WhitelistObj {
+  if (x === null || typeof x !== "object") return false;
+  const r = x as Record<string, unknown>;
+  return (
+    typeof r.isWhitelisted === "boolean" &&
+    typeof r.preAssignedTokens === "bigint" &&
+    typeof r.claimedTokens === "bigint" &&
+    typeof r.whitelistRound === "number"
+  );
+}
+
 async function readRoundTokenPrice(key: RoundKey): Promise<bigint> {
-  // each getter returns a tuple where the 2nd item is tokenPrice_
-  // (bool isActive_, uint256 tokenPrice_, ...)
   switch (key) {
     case "strategic": {
       const [, tokenPrice] = (await readContract({
@@ -95,7 +125,6 @@ async function readRoundTokenPrice(key: RoundKey): Promise<bigint> {
   }
 }
 
-/** Get a user's purchases for a given round */
 async function readUserPurchasesForRound(
   user: `0x${string}`,
   key: RoundKey,
@@ -107,7 +136,6 @@ async function readUserPurchasesForRound(
     params: [user, roundIndex],
   })) as PurchasesTuple;
 
-  // Defensive: ensure tuple lengths match (contract should guarantee this)
   const [amounts, usdcAmounts, timestamps, claimed] = res;
   const len = Math.min(
     amounts.length,
@@ -123,51 +151,59 @@ async function readUserPurchasesForRound(
   ] as const;
 }
 
-/** ===== Public types ===== */
+async function readUserWhitelistRound(
+  user: `0x${string}`,
+): Promise<RoundKey | null> {
+  const wlUnknown: unknown = await readContract({
+    contract: presale,
+    method: "whitelist",
+    params: [user],
+  });
+
+  let isWhitelisted = false;
+  let whitelistRound = -1;
+
+  if (isWhitelistTuple(wlUnknown)) {
+    isWhitelisted = wlUnknown[0];
+    whitelistRound = wlUnknown[3] ?? -1;
+  } else if (isWhitelistObj(wlUnknown)) {
+    isWhitelisted = wlUnknown.isWhitelisted;
+    whitelistRound = wlUnknown.whitelistRound ?? -1;
+  }
+
+  if (!isWhitelisted) return null;
+
+  const key = ENUM_TO_ROUND_KEY[whitelistRound];
+  return key ?? null;
+}
+
 export type UserRoundParticipation = {
   key: RoundKey;
   label: string;
-  tokenPriceRaw: bigint; // USDC units (e.g., 6 decimals)
+  tokenPriceRaw: bigint;
   purchasesCount: number;
-  totalTokensBought: bigint; // sum of token amounts across purchases
-  totalUsdcSpent: bigint; // sum of usdcAmounts across purchases
+  totalTokensBought: bigint;
+  totalUsdcSpent: bigint;
 };
 
 export type UserParticipationSummary = {
   usdcDecimals: number;
-  rounds: UserRoundParticipation[]; // only rounds with at least one purchase
+  rounds: UserRoundParticipation[];
 };
 
-/** ===== Main API =====
- * For a given user, returns all rounds where the user has one or more purchases,
- * including the round token price and simple aggregates.
- */
 export async function readUserParticipationRounds(
   user: `0x${string}`,
 ): Promise<UserParticipationSummary> {
   const usdcDecimals = await getUsdcDecimals();
 
-  // Fetch purchases & token prices per round in parallel
-  const perRound = await Promise.all(
+  const perRoundPurchases = await Promise.all(
     ROUNDS_ORDER.map(async (key) => {
       const [amounts, usdcAmounts] = await readUserPurchasesForRound(user, key);
       const purchasesCount = amounts.length;
+      if (purchasesCount === 0) return null;
 
-      if (purchasesCount === 0) {
-        // no purchases in this round
-        return null;
-      }
-
-      // Aggregate
-      const totalTokensBought = amounts.reduce<bigint>(
-        (acc, v) => acc + v,
-        0n,
-      );
-      const totalUsdcSpent = usdcAmounts.reduce<bigint>(
-        (acc, v) => acc + v,
-        0n,
-      );
-
+      const totalTokensBought = amounts.reduce<bigint>((acc, v) => acc + v, 0n);
+      const totalUsdcSpent = usdcAmounts.reduce<bigint>((acc, v) => acc + v, 0n);
       const tokenPriceRaw = await readRoundTokenPrice(key);
 
       const participation: UserRoundParticipation = {
@@ -182,8 +218,31 @@ export async function readUserParticipationRounds(
     }),
   );
 
-  const rounds = perRound.filter(
+  const purchaseRounds = perRoundPurchases.filter(
     (x): x is UserRoundParticipation => x !== null,
+  );
+
+  const wlKey = await readUserWhitelistRound(user);
+
+  const presentKeys = new Set<RoundKey>(purchaseRounds.map((r) => r.key));
+
+  const rounds: UserRoundParticipation[] = [...purchaseRounds];
+
+  if (wlKey && !presentKeys.has(wlKey)) {
+    const tokenPriceRaw = await readRoundTokenPrice(wlKey);
+    rounds.push({
+      key: wlKey,
+      label: ROUND_LABEL[wlKey],
+      tokenPriceRaw,
+      purchasesCount: 0,
+      totalTokensBought: 0n,
+      totalUsdcSpent: 0n,
+    });
+  }
+
+  rounds.sort(
+    (a, b) =>
+      ROUNDS_ORDER.indexOf(a.key) - ROUNDS_ORDER.indexOf(b.key),
   );
 
   return { usdcDecimals, rounds };
