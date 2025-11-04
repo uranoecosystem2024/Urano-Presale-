@@ -15,7 +15,7 @@ export default function VestingAndCliffSummary() {
   const account = useActiveAccount();
 
   const address = useMemo(
-    () => account?.address as `0x${string}` | undefined,
+    () => "0xbE0816F9379737e3b01e162C2481F62e91BdD247" as `0x${string}` | undefined,
     [account?.address]
   );
 
