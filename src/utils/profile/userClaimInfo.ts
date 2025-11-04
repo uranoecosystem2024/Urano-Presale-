@@ -209,11 +209,12 @@ export async function readWhitelistClaimSummary(user: `0x${string}`): Promise<{
   // Ask the contract what is claimable NOW (respects vesting/TGE)
   let claimableRaw = 0n;
   try {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
     claimableRaw = (await readContract({
       contract: presale,
       method: "getWhitelistClaimable",
       params: [user],
-    }));
+    })) as bigint;
     log("getWhitelistClaimable", claimableRaw.toString());
   } catch (e) {
     log("getWhitelistClaimable failed:", e);
@@ -353,6 +354,7 @@ export async function preparePurchasedClaimTxs(
 /* ------------------------------ Combined summary ------------------------------ */
 
 export async function readAllClaimSummary(user: `0x${string}`): Promise<{
+  
   tokenDecimals: number;
   unclaimedTotalRaw: bigint; // only claimable NOW
   claimedTotalRaw: bigint; // all-time claimed (whitelist + purchased)
@@ -396,6 +398,7 @@ export async function readAllClaimSummary(user: `0x${string}`): Promise<{
         .map((i) => ({ ...i, claimable: i.claimable.toString() })),
     },
   });
+  log("readAllClaimSummary(user)", user);
 
   return {
     tokenDecimals,
