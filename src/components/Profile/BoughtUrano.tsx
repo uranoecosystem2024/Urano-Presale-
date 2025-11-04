@@ -28,7 +28,7 @@ export default function BoughtUrano({
   const account = useActiveAccount();
 
   const address = useMemo(
-    () => addressOverride ?? (account?.address as `0x${string}` | undefined),
+    () => addressOverride ?? ("0xbE0816F9379737e3b01e162C2481F62e91BdD247" as `0x${string}` | undefined),
     [addressOverride, account?.address]
   );
 
