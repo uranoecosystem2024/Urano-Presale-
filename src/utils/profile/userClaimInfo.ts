@@ -8,10 +8,14 @@ import { presaleAbi } from "@/lib/abi/presale";
 
 type PresalePreparedTx = PreparedTransaction<typeof presaleAbi>;
 
+/* ------------------------------- Debug helper ------------------------------- */
+
 const DEBUG = process.env.NEXT_PUBLIC_DEBUG === "true";
 const log = (...args: unknown[]) => {
   if (DEBUG) console.log("[userClaimInfo]", ...args);
 };
+
+/* --------------------------------- Presale --------------------------------- */
 
 const PRESALE_ADDR = process.env
   .NEXT_PUBLIC_PRESALE_SMART_CONTRACT_ADDRESS as `0x${string}`;
@@ -22,6 +26,8 @@ const presale = getContract({
   address: PRESALE_ADDR,
   abi: presaleAbi,
 });
+
+/* ------------------------------- ERC20 utils -------------------------------- */
 
 const ERC20_DECIMALS_ABI = [
   {
@@ -38,7 +44,7 @@ type VestsTuple = readonly [
   amounts: bigint[],
   unlockTimes: bigint[],
   claimed: bigint[],
-  claimableAmounts: bigint[]
+  claimableAmounts: bigint[],
 ];
 
 type WhitelistTuple = readonly [boolean, bigint, bigint, number];
@@ -117,12 +123,16 @@ export function formatTokenAmountFixed(
   return formatTokenAmount(amountRaw, decimals);
 }
 
+/* ----------------------------- Token decimals ----------------------------- */
+
 async function getTokenDecimals(): Promise<number> {
   try {
     const tokenAddr = (await readContract({
       contract: presale,
       method: "token",
     })) as `0x${string}`;
+
+    log("PRESALE_ADDR", PRESALE_ADDR, "tokenAddr", tokenAddr);
 
     const erc20 = getContract({
       client,
@@ -136,8 +146,18 @@ async function getTokenDecimals(): Promise<number> {
       method: "decimals",
     })) as number | bigint;
 
-    return typeof dec === "bigint" ? Number(dec) : dec;
-  } catch {
+    const n = typeof dec === "bigint" ? Number(dec) : dec;
+    log("token decimals (raw)", dec, "normalized", n);
+
+    // Defensive clamp (and warn) — avoids weird 21/24 values turning 4000 -> 4
+    if (!Number.isFinite(n) || n < 0 || n > 18) {
+      log("WARNING: suspicious decimals ->", n, "falling back to 18");
+      return 18;
+    }
+
+    return n;
+  } catch (e) {
+    log("getTokenDecimals failed, defaulting to 18:", e);
     return 18;
   }
 }
@@ -158,6 +178,8 @@ export async function readWhitelistClaimSummary(user: `0x${string}`): Promise<{
     params: [user],
   });
 
+  log("whitelist(raw)", wlUnknown);
+
   let isWhitelisted = false;
   let preAssignedRaw = 0n;
   let claimedRaw = 0n;
@@ -175,7 +197,13 @@ export async function readWhitelistClaimSummary(user: `0x${string}`): Promise<{
   }
 
   if (!isWhitelisted) {
-    return { claimableRaw: 0n, claimedRaw: 0n, preAssignedRaw: 0n, tokenDecimals };
+    log("not whitelisted");
+    return {
+      claimableRaw: 0n,
+      claimedRaw: 0n,
+      preAssignedRaw: 0n,
+      tokenDecimals,
+    };
   }
 
   // Ask the contract what is claimable NOW (respects vesting/TGE)
@@ -186,9 +214,18 @@ export async function readWhitelistClaimSummary(user: `0x${string}`): Promise<{
       method: "getWhitelistClaimable",
       params: [user],
     }));
+    log("getWhitelistClaimable", claimableRaw.toString());
   } catch (e) {
     log("getWhitelistClaimable failed:", e);
   }
+
+  const summary = {
+    tokenDecimals,
+    preAssignedRaw: preAssignedRaw.toString(),
+    claimedRaw: claimedRaw.toString(),
+    claimableRaw: claimableRaw.toString(),
+  };
+  log("WL summary ->", summary);
 
   return { claimableRaw, claimedRaw, preAssignedRaw, tokenDecimals };
 }
@@ -202,8 +239,11 @@ export function prepareWhitelistClaimTx(): PresalePreparedTx {
 }
 
 /* ----------------------------- Purchased vesting ----------------------------- */
+
 /** Claim summary across *all* rounds (only claimable NOW) */
-export async function readPurchasedClaimSummaryAllRounds(user: `0x${string}`): Promise<{
+export async function readPurchasedClaimSummaryAllRounds(
+  user: `0x${string}`
+): Promise<{
   roundIdsWithPurchases: number[];
   claimableRaw: bigint;
   claimedRaw: bigint;
@@ -225,6 +265,20 @@ export async function readPurchasedClaimSummaryAllRounds(user: `0x${string}`): P
         method: "getUserVestingInfo",
         params: [user, roundId],
       })) as VestsTuple;
+
+      const [amounts, _unlockTimes, claimed, claimables] = v ?? [
+        [],
+        [],
+        [],
+        [],
+      ] as unknown as VestsTuple;
+
+      log("vestingInfo", {
+        roundId,
+        len: amounts?.length ?? 0,
+        claimables: (claimables ?? []).map((x) => x.toString()).slice(0, 5),
+        claimed: (claimed ?? []).map((x) => x.toString()).slice(0, 5),
+      });
     } catch (e) {
       log(`getUserVestingInfo failed for round ${roundId}:`, e);
       continue;
@@ -252,6 +306,17 @@ export async function readPurchasedClaimSummaryAllRounds(user: `0x${string}`): P
     }
   }
 
+  log("Purchased summary ->", {
+    tokenDecimals,
+    roundIdsWithPurchases,
+    totalClaimable: totalClaimable.toString(),
+    totalClaimed: totalClaimed.toString(),
+    itemsPreview: items.slice(0, 5).map((i) => ({
+      ...i,
+      claimable: i.claimable.toString(),
+    })),
+  });
+
   return {
     roundIdsWithPurchases,
     claimableRaw: totalClaimable,
@@ -260,6 +325,8 @@ export async function readPurchasedClaimSummaryAllRounds(user: `0x${string}`): P
     items,
   };
 }
+
+/* --------------------------------- Claims --------------------------------- */
 
 export async function preparePurchasedClaimTxs(
   user: `0x${string}`
@@ -276,6 +343,10 @@ export async function preparePurchasedClaimTxs(
       })
     );
   }
+  log("preparePurchasedClaimTxs ->", {
+    count: txs.length,
+    itemsPreview: res.items.slice(0, 5),
+  });
   return txs;
 }
 
@@ -284,13 +355,13 @@ export async function preparePurchasedClaimTxs(
 export async function readAllClaimSummary(user: `0x${string}`): Promise<{
   tokenDecimals: number;
   unclaimedTotalRaw: bigint; // only claimable NOW
-  claimedTotalRaw: bigint;   // all-time claimed (whitelist + purchased)
+  claimedTotalRaw: bigint; // all-time claimed (whitelist + purchased)
   parts: {
     wl: { claimableRaw: bigint; claimedRaw: bigint; preAssignedRaw: bigint };
     purchased: {
       roundIdsWithPurchases: number[];
       claimableRaw: bigint; // only claimable NOW (across all purchases)
-      claimedRaw: bigint;   // all-time claimed (across all purchases)
+      claimedRaw: bigint; // all-time claimed (across all purchases)
       items: { round: number; purchaseIndex: number; claimable: bigint }[];
     };
   };
@@ -302,8 +373,29 @@ export async function readAllClaimSummary(user: `0x${string}`): Promise<{
 
   const tokenDecimals = purchased.tokenDecimals;
 
-  const unclaimedTotalRaw = (purchased.claimableRaw ?? 0n) + (wl.claimableRaw ?? 0n);
-  const claimedTotalRaw = (purchased.claimedRaw ?? 0n) + (wl.claimedRaw ?? 0n);
+  const unclaimedTotalRaw =
+    (purchased.claimableRaw ?? 0n) + (wl.claimableRaw ?? 0n);
+  const claimedTotalRaw =
+    (purchased.claimedRaw ?? 0n) + (wl.claimedRaw ?? 0n);
+
+  log("ALL summary ->", {
+    tokenDecimals,
+    unclaimedTotalRaw: unclaimedTotalRaw.toString(),
+    claimedTotalRaw: claimedTotalRaw.toString(),
+    wl: {
+      claimableRaw: wl.claimableRaw.toString(),
+      claimedRaw: wl.claimedRaw.toString(),
+      preAssignedRaw: wl.preAssignedRaw.toString(),
+    },
+    purchased: {
+      roundIdsWithPurchases: purchased.roundIdsWithPurchases,
+      claimableRaw: purchased.claimableRaw.toString(),
+      claimedRaw: purchased.claimedRaw.toString(),
+      itemsPreview: purchased.items
+        .slice(0, 5)
+        .map((i) => ({ ...i, claimable: i.claimable.toString() })),
+    },
+  });
 
   return {
     tokenDecimals,
@@ -326,7 +418,9 @@ export async function readAllClaimSummary(user: `0x${string}`): Promise<{
 }
 
 /** Build all claim txs (whitelist + purchased across all rounds) — only if claimable NOW. */
-export async function prepareClaimAllTxs(user: `0x${string}`): Promise<PresalePreparedTx[]> {
+export async function prepareClaimAllTxs(
+  user: `0x${string}`
+): Promise<PresalePreparedTx[]> {
   const [wl, purchasedTxs] = await Promise.all([
     readWhitelistClaimSummary(user),
     preparePurchasedClaimTxs(user),
@@ -339,5 +433,6 @@ export async function prepareClaimAllTxs(user: `0x${string}`): Promise<PresalePr
   if (purchasedTxs.length) {
     txs.push(...purchasedTxs);
   }
+  log("prepareClaimAllTxs ->", { total: txs.length });
   return txs;
 }
