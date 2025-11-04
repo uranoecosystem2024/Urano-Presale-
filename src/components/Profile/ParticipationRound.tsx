@@ -25,7 +25,7 @@ export default function ParticipationRound({
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<UserParticipationSummary | null>(null);
 
-  const address = "0xbE0816F9379737e3b01e162C2481F62e91BdD247" as `0x${string}` | undefined;
+  const address = account?.address.toString() as `0x${string}` | undefined;
 
   useEffect(() => {
     let cancelled = false;
