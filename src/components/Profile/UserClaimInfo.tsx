@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Box, Link, Stack, Tooltip, Typography, useTheme, IconButton } from "@mui/material";
+import {
+  Box,
+  Link,
+  Stack,
+  Tooltip,
+  Typography,
+  useTheme,
+  IconButton,
+} from "@mui/material";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { IoIosCheckmarkCircle } from "react-icons/io";
 import { toast } from "react-toastify";
@@ -37,17 +45,32 @@ export default function UserClaimInfo({ addressOverride }: UserClaimInfoProps) {
   const [wlClaimableStr, setWlClaimableStr] = useState<string>("0");
   const [purchasedClaimableStr, setPurchasedClaimableStr] = useState<string>("0");
 
+  // TGE / vesting state
+  const [tgeNotLive, setTgeNotLive] = useState<boolean>(false);
+  const [tgeUnix, setTgeUnix] = useState<number | null>(null);
+
   const refresh = async () => {
     if (!address) {
       setUnclaimedAll("0");
       setClaimedAll("0");
       setWlClaimableStr("0");
       setPurchasedClaimableStr("0");
+      setTgeNotLive(false);
+      setTgeUnix(null);
       return;
     }
     setLoading(true);
     try {
       const all = await readAllClaimSummary(address);
+
+      // --- TGE / vesting gate ---
+      const tgeTimeSec = Number(all.tge.tgeTime ?? 0n);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const notLive =
+        !all.tge.vestingStarted || tgeTimeSec === 0 || nowSec < tgeTimeSec;
+
+      setTgeNotLive(notLive);
+      setTgeUnix(tgeTimeSec || null);
 
       // main numbers
       setUnclaimedAll(formatTokenAmount(all.unclaimedTotalRaw, all.tokenDecimals));
@@ -70,12 +93,21 @@ export default function UserClaimInfo({ addressOverride }: UserClaimInfoProps) {
 
   useEffect(() => {
     void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address]);
 
   const onClaimAll = async (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
     if (!account || !address) {
       toast.info("Connect your wallet first.");
+      return;
+    }
+    if (tgeNotLive) {
+      toast.info(
+        tgeUnix
+          ? `TGE is scheduled for ${new Date(tgeUnix * 1000).toLocaleString()}. You'll be able to claim your $URANO then — stay tuned!`
+          : "TGE is not live yet. You'll be able to claim your $URANO once it's announced — stay tuned!"
+      );
       return;
     }
     try {
@@ -183,7 +215,29 @@ export default function UserClaimInfo({ addressOverride }: UserClaimInfoProps) {
               WebkitTextFillColor: "transparent",
             }}
           >
-            {address ? `${compactUnclaimed} $URANO` : "—"}
+            {address ? (
+              tgeNotLive ? (
+                <Typography
+                  component="span"
+                  variant="body2"
+                  sx={{
+                    fontSize: "0.95rem",
+                    color: theme.palette.text.secondary,
+                    lineHeight: 1.35,
+                    WebkitTextFillColor: "unset",
+                    background: "unset",
+                  }}
+                >
+                  {tgeUnix
+                    ? `TGE is scheduled for ${new Date(tgeUnix * 1000).toLocaleString()}. You'll be able to claim your $URANO then — stay tuned!`
+                    : "TGE is not live yet. You'll be able to claim your $URANO once it's announced — stay tuned!"}
+                </Typography>
+              ) : (
+                `${compactUnclaimed} $URANO`
+              )
+            ) : (
+              "—"
+            )}
           </Typography>
         </Stack>
 
@@ -192,14 +246,17 @@ export default function UserClaimInfo({ addressOverride }: UserClaimInfoProps) {
           underline="none"
           target="_blank"
           onClick={onClaimAll}
-          sx={{ pointerEvents: claimingAll || unclaimedNum <= 0 ? "none" : "auto" }}
-          aria-disabled={claimingAll || unclaimedNum <= 0}
+          sx={{
+            pointerEvents:
+              claimingAll || unclaimedNum <= 0 || tgeNotLive ? "none" : "auto",
+          }}
+          aria-disabled={claimingAll || unclaimedNum <= 0 || tgeNotLive}
         >
           <Box
             sx={{
               width: "100%",
               background:
-                claimingAll || unclaimedNum <= 0
+                claimingAll || unclaimedNum <= 0 || tgeNotLive
                   ? theme.palette.action.disabledBackground
                   : theme.palette.uranoGradient,
               border: `2px solid ${theme.palette.headerBorder.main}`,
@@ -209,7 +266,10 @@ export default function UserClaimInfo({ addressOverride }: UserClaimInfoProps) {
               display: "flex",
               justifyContent: "center",
               alignItems: "center",
-              "&:hover": { border: `2px solid ${theme.palette.text.primary}`, filter: "brightness(1.2)" },
+              "&:hover": {
+                border: `2px solid ${theme.palette.text.primary}`,
+                filter: "brightness(1.2)",
+              },
               transition: "filter 0.15s ease",
             }}
           >
@@ -218,16 +278,18 @@ export default function UserClaimInfo({ addressOverride }: UserClaimInfoProps) {
               fontWeight={400}
               sx={{
                 color:
-                  claimingAll || unclaimedNum <= 0
+                  claimingAll || unclaimedNum <= 0 || tgeNotLive
                     ? theme.palette.text.disabled
                     : theme.palette.background.default,
               }}
             >
               {claimingAll
                 ? "Claiming…"
-                : address
-                ? `Claim ${compactUnclaimed} $URANO`
-                : "Connect Wallet"}
+                : !address
+                ? "Connect Wallet"
+                : tgeNotLive
+                ? "TGE not live"
+                : `Claim ${compactUnclaimed} $URANO`}
             </Typography>
           </Box>
         </Link>
@@ -242,12 +304,18 @@ export default function UserClaimInfo({ addressOverride }: UserClaimInfoProps) {
           sx={{
             border: "1px solid #5E9BC3",
             background: "#1C2022",
-            borderRadius: 2, px: 2, py: 2,
-            overflow: "hidden", position: "relative",
+            borderRadius: 2,
+            px: 2,
+            py: 2,
+            overflow: "hidden",
+            position: "relative",
           }}
         >
           <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
-            <Typography variant="h6" sx={{ fontSize: "1rem", fontWeight: 400, color: theme.palette.text.primary }}>
+            <Typography
+              variant="h6"
+              sx={{ fontSize: "1rem", fontWeight: 400, color: theme.palette.text.primary }}
+            >
               Claimed (All)
             </Typography>
             <IoIosCheckmarkCircle size={24} color={theme.palette.text.primary} />
