@@ -222,8 +222,9 @@ export default function UserClaimInfo({ addressOverride }: UserClaimInfoProps) {
                   variant="body2"
                   sx={{
                     fontSize: "0.95rem",
+                    fontWeight: 500,
                     color: theme.palette.text.secondary,
-                    lineHeight: 1.35,
+                    lineHeight: 1,
                     WebkitTextFillColor: "unset",
                     background: "unset",
                   }}
