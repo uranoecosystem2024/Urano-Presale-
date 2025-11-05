@@ -39,7 +39,6 @@ const ERC20_DECIMALS_ABI = [
   },
 ] as const;
 
-/** getUserVestingInfo returns these arrays aligned by index */
 type VestsTuple = readonly [
   amounts: bigint[],
   unlockTimes: bigint[],
@@ -104,12 +103,9 @@ export function formatTokenAmountFixed(
   const intPart = amountRaw / base;
   const frac = amountRaw % base;
 
-  // If we need fewer decimal places than token decimals, round:
   if (decimals > dp) {
-    const keep = 10n ** BigInt(decimals - dp); // divider for rounding
-    // Round half up
+    const keep = 10n ** BigInt(decimals - dp);
     const rounded = (frac + keep / 2n) / keep;
-    // If rounding carries into integer
     if (rounded >= 10n ** BigInt(dp)) {
       return `${(intPart + 1n).toLocaleString()}`;
     }
@@ -119,7 +115,6 @@ export function formatTokenAmountFixed(
       : `${intPart.toLocaleString()}`;
   }
 
-  // If token decimals <= dp, just format naturally (no extra zeros)
   return formatTokenAmount(amountRaw, decimals);
 }
 
@@ -149,7 +144,6 @@ async function getTokenDecimals(): Promise<number> {
     const n = typeof dec === "bigint" ? Number(dec) : dec;
     log("token decimals (raw)", dec, "normalized", n);
 
-    // Defensive clamp (and warn) — avoids weird 21/24 values turning 4000 -> 4
     if (!Number.isFinite(n) || n < 0 || n > 18) {
       log("WARNING: suspicious decimals ->", n, "falling back to 18");
       return 18;
@@ -162,10 +156,43 @@ async function getTokenDecimals(): Promise<number> {
   }
 }
 
+/* ------------------------------ TGE / Vesting ------------------------------ */
+
+/** Read TGE unix time (seconds) and vesting start flag from the contract. */
+export async function readTgeInfo(): Promise<{
+  tgeTime: bigint;
+  vestingStarted: boolean;
+}> {
+  try {
+    const [tgeTimeRaw, vestingStartedRaw] = await Promise.all([
+      readContract({ contract: presale, method: "tgeTime" }) as Promise<
+        bigint | number
+      >,
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+      readContract({ contract: presale, method: "vestingStarted" }) as Promise<
+        boolean
+      >,
+    ]);
+
+    const tgeTime =
+      typeof tgeTimeRaw === "bigint" ? tgeTimeRaw : BigInt(tgeTimeRaw ?? 0);
+
+    log("TGE info ->", {
+      tgeTime: tgeTime.toString(),
+      vestingStarted: vestingStartedRaw,
+    });
+
+    return { tgeTime, vestingStarted: !!vestingStartedRaw };
+  } catch (e) {
+    log("readTgeInfo failed, assuming not started:", e);
+    return { tgeTime: 0n, vestingStarted: false };
+  }
+}
+
 /* -------------------------- Whitelist (Pre-assign) -------------------------- */
 
 export async function readWhitelistClaimSummary(user: `0x${string}`): Promise<{
-  claimableRaw: bigint; // claimable NOW (uses contract's getWhitelistClaimable)
+  claimableRaw: bigint;
   claimedRaw: bigint;
   preAssignedRaw: bigint;
   tokenDecimals: number;
@@ -206,7 +233,6 @@ export async function readWhitelistClaimSummary(user: `0x${string}`): Promise<{
     };
   }
 
-  // Ask the contract what is claimable NOW (respects vesting/TGE)
   let claimableRaw = 0n;
   try {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
@@ -267,7 +293,7 @@ export async function readPurchasedClaimSummaryAllRounds(
         params: [user, roundId],
       })) as VestsTuple;
 
-      const [amounts, _unlockTimes, claimed, claimables] = v ?? [
+      const [_amounts, _unlockTimes, claimed, claimables] = v ?? [
         [],
         [],
         [],
@@ -276,7 +302,7 @@ export async function readPurchasedClaimSummaryAllRounds(
 
       log("vestingInfo", {
         roundId,
-        len: amounts?.length ?? 0,
+        len: (_amounts ?? []).length ?? 0,
         claimables: (claimables ?? []).map((x) => x.toString()).slice(0, 5),
         claimed: (claimed ?? []).map((x) => x.toString()).slice(0, 5),
       });
@@ -292,7 +318,6 @@ export async function readPurchasedClaimSummaryAllRounds(
     const n = Math.min(amounts.length, claimables.length, claimed.length);
     if (n === 0) continue;
 
-    // This round has entries for the user
     roundIdsWithPurchases.push(roundId);
 
     for (let i = 0; i < n; i++) {
@@ -335,7 +360,6 @@ export async function preparePurchasedClaimTxs(
   const res = await readPurchasedClaimSummaryAllRounds(user);
   const txs: PresalePreparedTx[] = [];
   for (const it of res.items) {
-    // one tx per (round, purchaseIndex) that has something to claim NOW
     txs.push(
       prepareContractCall({
         contract: presale,
@@ -354,23 +378,24 @@ export async function preparePurchasedClaimTxs(
 /* ------------------------------ Combined summary ------------------------------ */
 
 export async function readAllClaimSummary(user: `0x${string}`): Promise<{
-  
   tokenDecimals: number;
-  unclaimedTotalRaw: bigint; // only claimable NOW
-  claimedTotalRaw: bigint; // all-time claimed (whitelist + purchased)
+  unclaimedTotalRaw: bigint;
+  claimedTotalRaw: bigint;
+  tge: { tgeTime: bigint; vestingStarted: boolean };
   parts: {
     wl: { claimableRaw: bigint; claimedRaw: bigint; preAssignedRaw: bigint };
     purchased: {
       roundIdsWithPurchases: number[];
-      claimableRaw: bigint; // only claimable NOW (across all purchases)
-      claimedRaw: bigint; // all-time claimed (across all purchases)
+      claimableRaw: bigint;
+      claimedRaw: bigint;
       items: { round: number; purchaseIndex: number; claimable: bigint }[];
     };
   };
 }> {
-  const [wl, purchased] = await Promise.all([
+  const [wl, purchased, tge] = await Promise.all([
     readWhitelistClaimSummary(user),
     readPurchasedClaimSummaryAllRounds(user),
+    readTgeInfo(),
   ]);
 
   const tokenDecimals = purchased.tokenDecimals;
@@ -384,6 +409,7 @@ export async function readAllClaimSummary(user: `0x${string}`): Promise<{
     tokenDecimals,
     unclaimedTotalRaw: unclaimedTotalRaw.toString(),
     claimedTotalRaw: claimedTotalRaw.toString(),
+    tge: { tgeTime: tge.tgeTime.toString(), vestingStarted: tge.vestingStarted },
     wl: {
       claimableRaw: wl.claimableRaw.toString(),
       claimedRaw: wl.claimedRaw.toString(),
@@ -404,6 +430,7 @@ export async function readAllClaimSummary(user: `0x${string}`): Promise<{
     tokenDecimals,
     unclaimedTotalRaw,
     claimedTotalRaw,
+    tge,
     parts: {
       wl: {
         claimableRaw: wl.claimableRaw,
