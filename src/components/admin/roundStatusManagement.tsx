@@ -182,7 +182,7 @@ const RoundStatusManagement = memo(function RoundStatusManagement({
   }, [items]);
 
   useEffect(() => {
-    if (!firstActive?.id || expandedId !== firstActive.id) setExpandedId(null);
+    if (!firstActive?.id || expandedId !== firstActive?.id) setExpandedId(null);
   }, [firstActive, expandedId]);
 
   const setRowTxLoading = (id: string, val: boolean) =>
