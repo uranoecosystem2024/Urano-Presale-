@@ -33,7 +33,7 @@
     "ethers": "^6.15.0",
     "framer-motion": "^12.23.12",
     "iconsax-reactjs": "^0.0.8",
-    "next": "^15.2.3",
+    "next": "15.2.8",
     "papaparse": "^5.5.3",
     "persona-react": "^6.2.1",
     "pino-pretty": "^3.0.1",
