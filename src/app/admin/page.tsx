@@ -12,6 +12,7 @@ import InstitutionalRoundAccess from "@/components/admin/institutionalRoundAcces
 import Whitelist from "@/components/admin/Whitelist";
 import ManualSepaPurchase from "@/components/admin/manualSEPAPurchase";
 import WithdrawUnsoldTokens from "@/components/admin/withdrawUnsoldTokens";
+import ConversionsExportCard from "@/components/admin/ConversionsExportCard";
 
 import { useActiveAccount } from "thirdweb/react";
 import { hasAdminRole } from "@/utils/admin/roles";
@@ -208,6 +209,19 @@ export default function Admin() {
                             onRemoved={(addr) => console.log("Removed:", addr)}
                         />
                     </Stack>
+
+                    <Stack
+                        sx={{
+                            backgroundColor: theme.palette.presaleCardBg.main,
+                            border: `1px solid ${theme.palette.headerBorder.main}`,
+                            borderRadius: 2,
+                            p: 3,
+                            gap: 2,
+                        }}
+                    >
+                        <ConversionsExportCard disabled={checkingRole || !isAdmin} />
+                    </Stack>
+
 
                     <Stack
                         sx={{

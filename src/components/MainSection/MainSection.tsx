@@ -29,6 +29,15 @@ import PurchaseSuccessModal from "../PurchaseSuccessModal";
 
 type Progress = { step1: boolean; step2: boolean; step3: boolean };
 
+type ReferralPayload = {
+  ref_code?: string;
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
+  utm_content?: string;
+  utm_term?: string;
+};
+
 const STORAGE_KEY = "registrationProgress:v1";
 const AMOUNT_STORAGE_KEY = "urano:purchaseAmount:v1";
 const USDC_ADDRESS = process.env.NEXT_PUBLIC_USDC_ADDRESS_SEPOLIA as `0x${string}` | undefined;
@@ -78,6 +87,43 @@ const MainSection = () => {
   const [loadingPhase, setLoadingPhase] = useState<"idle" | "approve" | "buy">("idle");
 
   const [approvedThisSession, setApprovedThisSession] = useState(false);
+
+  function readReferralPayload(): ReferralPayload {
+    try {
+      // Use whatever key you chose when persisting from landing page
+      const raw = localStorage.getItem("urano:referral:v1");
+      if (!raw) return {};
+      const parsed = JSON.parse(raw) as ReferralPayload;
+      return parsed ?? {};
+    } catch {
+      return {};
+    }
+  }
+  
+  async function trackConversion(input: {
+    buyerAddress: `0x${string}`;
+    txHash: `0x${string}`;
+    chainId: number;
+    amount: number; // USDC human
+  }): Promise<void> {
+    const res = await fetch("/api/referral/convert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        buyer_address: input.buyerAddress,
+        tx_hash: input.txHash,
+        chain_id: input.chainId,
+        amount: String(input.amount),
+      }),
+    });
+  
+    // do not block UX if it fails, but do detect errors
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(data?.error ?? "Failed to convert referral");
+    }
+  }
+  
 
   const toastBase = useMemo(
     () => ({
@@ -256,6 +302,20 @@ const MainSection = () => {
       const { code } = await getOrCreateInviteCode(account);
       const idx = await getActiveRoundIndexStrict()
       const { txHash: buyTx } = await buyPresaleTokens(account, idx, amount, code);
+
+      try {
+        if (address) {
+          await trackConversion({
+            buyerAddress: address,
+            txHash: buyTx,
+            chainId: arbitrum.id,
+            amount,
+          });
+        }
+      } catch (e) {
+        // don’t fail the purchase UX if tracking fails
+        console.error("Conversion tracking failed:", e);
+      }
 
       toast.success(
         <div>
